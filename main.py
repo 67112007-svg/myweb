@@ -15,12 +15,25 @@ from models import Product, Category
 #import re
 from models import Order
 from datetime import timedelta
+from starlette.middleware.sessions import SessionMiddleware
+from fastapi import HTTPException
+from jwt_auth import create_token
+from fastapi import Depends
+from jwt_auth import verify_token
 
 
+
+# 1. ต้องประกาศสร้าง app ขึ้นมาก่อน
+app = FastAPI()
+
+# 2. จากนั้นถึงจะเอา app มาแอด middleware ได้
+app.add_middleware(SessionMiddleware, secret_key="secret123")
+
+# ลำดับที่ 3: ค่อยตั้งค่าอื่นๆ เช่น Database, Static files, Templates
 models.Base.metadata.create_all(bind=engine)
 
 
-app = FastAPI()
+
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -39,18 +52,18 @@ def get_db():
         db.close()
 
 
-
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "message": "Welcome to My Web App",
-        "username": "Somchai",
-        "email": "somchai@mail.com",
-        "score": 95,
-        "activities": ["Running", "Go", "Football"]
-    })
-
+@app.get("/")  # หรือเส้นทาง (Path) อื่นที่คุณต้องการ
+async def home(request: Request): # ต้องมีบรรทัดนี้อยู่ข้างบน
+    # บรรทัด return ต้องมีย่อหน้าเข้าไป (กด Space 4 ครั้ง หรือกด Tab 1 ครั้ง)
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "message": "Hello World",
+            "score": 76,
+            "activities": ["Running", "Go", "Football"]
+        }
+    )
 
 # --- แสดงรายการสินค้า (Read) ---
 @app.get("/products", response_class=HTMLResponse)
@@ -209,8 +222,7 @@ def process_ocr(image_path):
         "amount": amount,
         "datetime": date_match,
     }
-
-#def parse_thai_datetime(text):
+def parse_thai_datetime(text):
     thai_months = {
         "ม.ค.": 1, "ก.พ.": 2, "มี.ค.": 3,
         "เม.ย.": 4, "พ.ค.": 5, "มิ.ย.": 6,
@@ -302,36 +314,6 @@ def mark_paid(data: dict):
     finally:
         db.close()
 
-from starlette.middleware.sessions import SessionMiddleware
-
-app.add_middleware(SessionMiddleware, secret_key="secret123")
-
-
-def get_current_user(request: Request):
-    user = request.session.get("user")
-    if not user:
-        return RedirectResponse("/login", status_code=303)
-    return user
-
-
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request, user=Depends(get_current_user)):
-
-    # protect login
-    if isinstance(user, RedirectResponse):
-        return user
-
-    return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-            "message": "Hello World",
-            "score": 76,
-            "activities": ["Running", "Football", "Badminton"]
-            }
-)
-
-
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if request.session.get("user"):
@@ -342,34 +324,60 @@ def login_page(request: Request):
 
 
 @app.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    if username == "admin" and password == "1234":
+def login(request: Request, username: str = Form(...), password: str =
+Form(...)):
+     if username == "admin" and password == "1234":
         request.session["user"] = username
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", {
+     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Login failed"
     })
-
 
 @app.get("/logout")
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
-from jwt_auth import create_token,verify_token
+
+# นำมาเขียนไว้ด้านล่างสุดที่เดียวเลยครับ
+def get_current_user(request: Request):
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    return user
+
+# --- ส่วนที่ต้องแก้ไข (อยู่ท้ายไฟล์) ---
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request, user=Depends(get_current_user)):
+    # ถ้าไม่มี user ให้ Redirect ไปหน้า login (get_current_user ต้องส่งค่ากลับมาเช็ค)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    # บรรทัดนี้ต้อง "ย่อหน้า" เข้ามาให้ตรงกับ if ด้านบน
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "message": "Hello World",
+            "score": 76,
+            "activities": ["Running", "Go", "Football"]
+        }
+    )
+
 @app.post("/api/login")
-def login(username: str, password: str):
+def api_login(username: str = Form(...), password: str = Form(...)): # เพิ่ม Form(...) เพื่อให้รับค่าจากหน้าบ้านได้
     if username == "admin" and password == "1234":
         token = create_token(username)
         return {
-        "access_token": token,
-        "token_type": "bearer"
+            "access_token": token,
+            "token_type": "bearer"
         }
     raise HTTPException(
-    status_code=401,
-    detail="Invalid username or password"
-)
+        status_code=401,
+        detail="Invalid username or password"
+    )
 
 @app.get("/api/v1/users")
 def user_list(user = Depends(verify_token)):
@@ -377,15 +385,3 @@ def user_list(user = Depends(verify_token)):
         "message": "List of users",
         "current_user": user
     }
-
-@app.get("/api/hello")
-def hello():
-    return {"message": "API Works!"}
-
-@app.get('/api/grade')
-def grade_api(score:float = None):
-    if score >= 85:
-        return {'grade': 'A'}
-    elif score >= 75 and score < 85:
-        return {'grade': 'B'}
-    return {'grade': 'F'}
