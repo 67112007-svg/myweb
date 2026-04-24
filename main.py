@@ -39,6 +39,7 @@ def get_db():
         db.close()
 
 
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse("index.html", {
@@ -49,6 +50,7 @@ def home(request: Request):
         "score": 95,
         "activities": ["Running", "Go", "Football"]
     })
+
 
 # --- แสดงรายการสินค้า (Read) ---
 @app.get("/products", response_class=HTMLResponse)
@@ -319,14 +321,15 @@ def home(request: Request, user=Depends(get_current_user)):
     if isinstance(user, RedirectResponse):
         return user
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "message": "Hello World",
-        "username": "Somchai",
-        "email": "somchai@mail.com",
-        "score": 76,
-        "activities": ["Football", "Running", "Badminton"]
-    })
+    return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+            "message": "Hello World",
+            "score": 76,
+            "activities": ["Running", "Football", "Badminton"]
+            }
+)
 
 
 @app.get("/login", response_class=HTMLResponse)
